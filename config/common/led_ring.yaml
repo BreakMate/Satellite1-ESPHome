@@ -851,9 +851,19 @@ script:
 
   # Script executed when the voice assistant is idle (waiting for a wake word)
   # Nothing (Either LED ring off or LED ring on if the user decided to turn the user facing LED ring on)
+  # Rainbow: also resets rainbow_speed back to the slider's baseline value. Without this, if a
+  # phase that changes the speed (e.g. Thinking at 2x) is interrupted by an Error or Not Ready
+  # state instead of flowing through Replying normally, the speed change is never undone and
+  # Rainbow keeps spinning at the leftover speed indefinitely.
   - id: control_leds_voice_assistant_idle_phase
     then:
       - light.turn_off: voice_assistant_leds
+      - if:
+          condition:
+            lambda: 'return id(led_ring).get_effect_name() == "Rainbow";'
+          then:
+            - lambda: |-
+                id(rainbow_speed) = id(rainbow_speed_number).state;
       - if:
           condition:
             light.is_on: led_ring
