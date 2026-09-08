@@ -14,6 +14,13 @@ globals:
     type: float
     restore_value: yes
     initial_value: '2.0'
+  # Current phase (0-360 degrees) of the Rainbow effect. Kept as a global rather than a local
+  # static variable so other effects (e.g. the volume bar) can read the same live rotation
+  # instead of drifting out of sync with their own separate counters.
+  - id: rainbow_hue
+    type: float
+    restore_value: no
+    initial_value: '0.0'
 light:
   # Hardware LED ring. Not used because remapping needed
   - platform: esp32_rmt_led_strip
@@ -47,8 +54,6 @@ light:
           name: "Rainbow"
           update_interval: 16ms
           lambda: |-
-            static float hue = 0.0f;
-
             auto hsv_to_rgb = [](float h, float s, float v) -> Color {
               float r, g, b;
               int i = int(h / 60.0f) % 6;
@@ -71,44 +76,63 @@ light:
               // that make up blended colors, making them pop as much as the primaries.
               // Try values between 1.8 and 3.0. GAMMA = 1.0 disables the effect entirely
               // (back to today's look).
-              const float GAMMA = 1.1f;
+              const float GAMMA = 2.2f;
               r = powf(r, 1.0f / GAMMA);
               g = powf(g, 1.0f / GAMMA);
               b = powf(b, 1.0f / GAMMA);
               return Color(uint8_t(r * 255), uint8_t(g * 255), uint8_t(b * 255));
             };
 
-            for (int i = 0; i < 24; i++) {
-              float pixel_hue = hue + i * (360.0f / 24.0f);
+            auto rainbow_pixel = [&](int i) -> Color {
+              float pixel_hue = id(rainbow_hue) + i * (360.0f / 24.0f);
               while (pixel_hue >= 360.0f) pixel_hue -= 360.0f;
-              it[i] = hsv_to_rgb(pixel_hue, 1.0f, 1.0f);
-            }
+              return hsv_to_rgb(pixel_hue, 1.0f, 1.0f);
+            };
 
-            // Mute indicators drawn on top of the rainbow, so the muted LEDs stay solid red
-            // while every other LED keeps cycling through the rainbow underneath.
-            if (id(master_mute_switch).state) {
-              const int mic_centers[] = {0, 6, 12, 18};
-              for (int n = 0; n < 4; n++) {
-                int c = mic_centers[n];
-                it[(c + 23) % 24] = Color::BLACK;
-                it[c] = Color(255, 0, 0);
-                it[(c + 1) % 24] = Color::BLACK;
+            if (id(volume_buttons_touched)) {
+              // Volume display: only light the LEDs proportional to the current volume,
+              // using the rainbow instead of a flat color. e.g. 50% volume -> 12 LEDs lit.
+              auto volume = id(external_media_player).volume;
+              int lit_count = int(24.0f * volume + 0.5f);
+              if (lit_count > 24) lit_count = 24;
+              if (lit_count < 0) lit_count = 0;
+              for (int i = 0; i < 24; i++) {
+                it[i] = (i < lit_count) ? rainbow_pixel(i) : Color::BLACK;
+              }
+              if (volume == 0.0f) {
+                it[0] = Color(255, 0, 0);
+              }
+            } else {
+              for (int i = 0; i < 24; i++) {
+                it[i] = rainbow_pixel(i);
+              }
+
+              // Mute indicators drawn on top of the rainbow, so the muted LEDs stay solid red
+              // while every other LED keeps cycling through the rainbow underneath.
+              if (id(master_mute_switch).state) {
+                const int mic_centers[] = {0, 6, 12, 18};
+                for (int n = 0; n < 4; n++) {
+                  int c = mic_centers[n];
+                  it[(c + 23) % 24] = Color::BLACK;
+                  it[c] = Color(255, 0, 0);
+                  it[(c + 1) % 24] = Color::BLACK;
+                }
+              }
+              if (id(external_media_player).volume == 0.0f || id(external_media_player).is_muted()) {
+                const int quadrant_starts[] = {1, 7, 13, 19};
+                for (int n = 0; n < 4; n++) {
+                  int s = quadrant_starts[n];
+                  it[s] = Color::BLACK;
+                  it[(s + 1) % 24] = Color(200, 0, 0);
+                  it[(s + 2) % 24] = Color(200, 0, 0);
+                  it[(s + 3) % 24] = Color(200, 0, 0);
+                  it[(s + 4) % 24] = Color::BLACK;
+                }
               }
             }
-            if (id(external_media_player).volume == 0.0f || id(external_media_player).is_muted()) {
-              const int quadrant_starts[] = {1, 7, 13, 19};
-              for (int n = 0; n < 4; n++) {
-                int s = quadrant_starts[n];
-                it[s] = Color::BLACK;
-                it[(s + 1) % 24] = Color(200, 0, 0);
-                it[(s + 2) % 24] = Color(200, 0, 0);
-                it[(s + 3) % 24] = Color(200, 0, 0);
-                it[(s + 4) % 24] = Color::BLACK;
-              }
-            }
 
-            hue += id(rainbow_speed);
-            while (hue >= 360.0f) hue -= 360.0f;
+            id(rainbow_hue) += id(rainbow_speed);
+            while (id(rainbow_hue) >= 360.0f) id(rainbow_hue) -= 360.0f;
 
   # Voice Assistant LED ring. Remapping of the hardware LED.
   # This light is not exposed. The device controls it
@@ -784,12 +808,21 @@ script:
 
   # Script executed when the volume button is touched
   # A number of LEDs turn on indicating a visual representation of the volume of the media player entity.
+  # Single color: original behavior, unchanged.
+  # Rainbow: do nothing here — the Rainbow effect (still running on led_ring) already checks
+  # volume_buttons_touched itself and draws the proportional volume bar using rainbow colors.
   - id: control_leds_volume_buttons_touched
     then:
-      - light.turn_on:
-          brightness: !lambda return min ( max( id(led_ring).current_values.get_brightness() , 0.2f ) + 0.1f , 1.0f );
-          id: voice_assistant_leds
-          effect: "Volume Display"
+      - if:
+          condition:
+            lambda: 'return id(led_ring).get_effect_name() != "Rainbow";'
+          then:
+            - light.turn_on:
+                brightness: !lambda return min ( max( id(led_ring).current_values.get_brightness() , 0.2f ) + 0.1f , 1.0f );
+                id: voice_assistant_leds
+                effect: "Volume Display"
+          else:
+            - light.turn_off: voice_assistant_leds
 
   # Script executed when the jack has just been unplugged
   # A ripple effect
