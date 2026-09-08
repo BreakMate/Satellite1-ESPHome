@@ -27,7 +27,7 @@ light:
     id: hw_led_ring
     pin: GPIO21
     num_leds: 24
-    rgb_order: GRB
+    channel_colors: GRB
     chipset: WS2812
 
   # User facing LED ring. Remapping of the hardware LEDs.
@@ -76,7 +76,7 @@ light:
               // that make up blended colors, making them pop as much as the primaries.
               // Try values between 1.8 and 3.0. GAMMA = 1.0 disables the effect entirely
               // (back to today's look).
-              const float GAMMA = 2.2f;
+              const float GAMMA = 1.1f;
               r = powf(r, 1.0f / GAMMA);
               g = powf(g, 1.0f / GAMMA);
               b = powf(b, 1.0f / GAMMA);
@@ -668,7 +668,11 @@ script:
       - light.turn_off: voice_assistant_leds
       - if:
           condition:
-            light.is_on: led_ring
+            or:
+              - light.is_on: led_ring
+              # Rainbow may have been paused (turned off) by another effect like Warning,
+              # Jack Plugged/Unplugged, Action Button, or a Timer. Resume it here.
+              - lambda: 'return id(led_ring).get_effect_name() == "Rainbow";'
           then:
             light.turn_on: led_ring
 
@@ -766,6 +770,11 @@ script:
   # 5 Fast Red Pulses
   - id: control_leds_warning
     then:
+      - if:
+          condition:
+            lambda: 'return id(led_ring).get_effect_name() == "Rainbow";'
+          then:
+            - light.turn_off: led_ring
       - light.turn_on:
           brightness: !lambda return min ( max( id(led_ring).current_values.get_brightness() , 0.2f ) + 0.1f , 1.0f );
           red: 1
@@ -828,6 +837,11 @@ script:
   # A ripple effect
   - id: control_leds_jack_unplugged_recently
     then:
+      - if:
+          condition:
+            lambda: 'return id(led_ring).get_effect_name() == "Rainbow";'
+          then:
+            - light.turn_off: led_ring
       - light.turn_on:
           brightness: !lambda return min ( max( id(led_ring).current_values.get_brightness() , 0.2f ) + 0.1f , 1.0f );
           id: voice_assistant_leds
@@ -837,6 +851,11 @@ script:
   # A ripple effect
   - id: control_leds_jack_plugged_recently
     then:
+      - if:
+          condition:
+            lambda: 'return id(led_ring).get_effect_name() == "Rainbow";'
+          then:
+            - light.turn_off: led_ring
       - light.turn_on:
           brightness: !lambda return max( id(led_ring).current_values.get_brightness() , 0.2f );
           id: voice_assistant_leds
@@ -846,6 +865,11 @@ script:
   # The complete LED ring turns on
   - id: control_leds_action_button_touched
     then:
+      - if:
+          condition:
+            lambda: 'return id(led_ring).get_effect_name() == "Rainbow";'
+          then:
+            - light.turn_off: led_ring
       - light.turn_on:
           brightness: !lambda return min ( max( id(led_ring).current_values.get_brightness() , 0.2f ) + 0.1f , 1.0f );
           id: voice_assistant_leds
@@ -855,6 +879,11 @@ script:
   # The LED ring blinks.
   - id: control_leds_timer_ringing
     then:
+      - if:
+          condition:
+            lambda: 'return id(led_ring).get_effect_name() == "Rainbow";'
+          then:
+            - light.turn_off: led_ring
       - light.turn_on:
           brightness: !lambda return min ( max( id(led_ring).current_values.get_brightness() , 0.2f ) + 0.1f , 1.0f );
           id: voice_assistant_leds
@@ -864,6 +893,11 @@ script:
   # The LEDs shows the remaining time as a fraction of the full ring.
   - id: control_leds_timer_ticking
     then:
+      - if:
+          condition:
+            lambda: 'return id(led_ring).get_effect_name() == "Rainbow";'
+          then:
+            - light.turn_off: led_ring
       - light.turn_on:
           brightness: !lambda return min ( max( id(led_ring).current_values.get_brightness() , 0.2f ) + 0.1f , 1.0f );
           id: voice_assistant_leds
