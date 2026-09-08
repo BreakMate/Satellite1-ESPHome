@@ -4,7 +4,7 @@ globals:
     type: int
     restore_value: no
     initial_value: '0'
-  - id: led_anim_
+  - id: led_anim_speed
     type: float
     restore_value: no
     initial_value: '0.5'
@@ -99,6 +99,26 @@ light:
               return hsv_to_rgb(pixel_hue, 1.0f, 1.0f);
             };
 
+            // Mute/silenced markers use the color opposite whatever the rainbow would show at
+            // that LED right now (180 degrees around the color wheel), so they always contrast
+            // against their neighbors instead of blending in when the rainbow happens to be
+            // red/orange at that position.
+            auto contrast_pixel = [&](int i) -> Color {
+              float pixel_hue = id(rainbow_hue) + i * (360.0f / 24.0f) + 180.0f;
+              while (pixel_hue >= 360.0f) pixel_hue -= 360.0f;
+              return hsv_to_rgb(pixel_hue, 1.0f, 1.0f);
+            };
+
+            if (id(btn_action).state || id(jack_plugged_recently) || id(jack_unplugged_recently) ||
+                id(warning) || id(timer_ringing).state) {
+              // Another effect (Action Button, Jack Plugged/Unplugged, Warning, or Timer Ringing)
+              // owns the physical LEDs right now. Suspend Rainbow entirely by not writing any
+              // pixels, WITHOUT touching led_ring's on/off state or effect selection — turning a
+              // light off resets its selected effect in ESPHome, which is what previously caused
+              // Rainbow to get replaced by a static color after one of these was triggered.
+              return;
+            }
+
             if (id(volume_buttons_touched)) {
               // Volume display: only light the LEDs proportional to the current volume,
               // using the rainbow instead of a flat color. e.g. 50% volume -> 12 LEDs lit.
@@ -110,7 +130,7 @@ light:
                 it[i] = (i < lit_count) ? rainbow_pixel(i) : Color::BLACK;
               }
               if (volume == 0.0f) {
-                it[0] = Color(255, 0, 0);
+                it[0] = contrast_pixel(0);
               }
             } else if (id(is_timer_active)) {
               // Timer countdown: same fading-edge behavior as the solid-color "Timer Tick"
@@ -129,8 +149,8 @@ light:
               // Same mute marker positions as the solid-color "Timer Tick" effect, just without
               // the black buffer LEDs on either side.
               if (id(master_mute_switch).state) {
-                it[3] = Color(255, 0, 0);
-                it[9] = Color(255, 0, 0);
+                it[3] = contrast_pixel(3);
+                it[9] = contrast_pixel(9);
               }
             } else if (id(wake_reveal_active)) {
               // Wake word acknowledgment: the rainbow wipes on around the ring over 250ms,
@@ -160,22 +180,21 @@ light:
                 it[i] = rainbow_pixel(i);
               }
 
-              // Mute indicators drawn on top of the rainbow, so the muted LEDs stay solid red
-              // while every other LED keeps cycling through the rainbow underneath. Just the
-              // red LEDs themselves — no black buffer LEDs on either side.
+              // Mute indicators drawn on top of the rainbow, using the contrasting color so
+              // they stand out clearly no matter what the rainbow is doing at that LED.
               if (id(master_mute_switch).state) {
                 const int mic_centers[] = {0, 6, 12, 18};
                 for (int n = 0; n < 4; n++) {
-                  it[mic_centers[n]] = Color(255, 0, 0);
+                  it[mic_centers[n]] = contrast_pixel(mic_centers[n]);
                 }
               }
               if (id(external_media_player).volume == 0.0f || id(external_media_player).is_muted()) {
                 const int quadrant_starts[] = {1, 7, 13, 19};
                 for (int n = 0; n < 4; n++) {
                   int s = quadrant_starts[n];
-                  it[(s + 1) % 24] = Color(200, 0, 0);
-                  it[(s + 2) % 24] = Color(200, 0, 0);
-                  it[(s + 3) % 24] = Color(200, 0, 0);
+                  it[(s + 1) % 24] = contrast_pixel((s + 1) % 24);
+                  it[(s + 2) % 24] = contrast_pixel((s + 2) % 24);
+                  it[(s + 3) % 24] = contrast_pixel((s + 3) % 24);
                 }
               }
             }
@@ -832,11 +851,7 @@ script:
       - light.turn_off: voice_assistant_leds
       - if:
           condition:
-            or:
-              - light.is_on: led_ring
-              # Rainbow may have been paused (turned off) by another effect like Warning,
-              # Jack Plugged/Unplugged, Action Button, or a Timer. Resume it here.
-              - lambda: 'return id(led_ring).get_effect_name() == "Rainbow";'
+            light.is_on: led_ring
           then:
             light.turn_on: led_ring
 
@@ -884,7 +899,7 @@ script:
 
   # Script executed when the voice assistant is thinking about a command
   # Single color: original "Thinking" blink effect, unchanged.
-  # Rainbow: spins in the intended (forward) direction at 2x the user-configured speed.
+  # Rainbow: spins in the intended (forward) direction at 3x the user-configured speed.
   - id: control_leds_voice_assistant_thinking_phase
     then:
       - if:
@@ -902,7 +917,7 @@ script:
 
   # Script executed when the voice assistant is replying
   # Single color: original fast anticlockwise spin, unchanged.
-  # Rainbow: back to spinning forward at the normal (user-configured)  during the response.
+  # Rainbow: back to spinning forward at the normal (user-configured) speed during the response.
   - id: control_leds_voice_assistant_replying_phase
     then:
       - if:
@@ -911,10 +926,10 @@ script:
           then:
             - lambda: |-
                 id(wake_reveal_active) = false;
-                id(rainbow_) = id(rainbow__number).state;
+                id(rainbow_speed) = id(rainbow_speed_number).state;
           else:
             - lambda: |-
-                id(led_anim_) = -1.f;
+                id(led_anim_speed) = -1.f;
             - light.turn_on:
                 brightness: !lambda return max( id(led_ring).current_values.get_brightness() , 0.2f );
                 id: voice_assistant_leds
@@ -939,11 +954,6 @@ script:
   # 5 Fast Red Pulses
   - id: control_leds_warning
     then:
-      - if:
-          condition:
-            lambda: 'return id(led_ring).get_effect_name() == "Rainbow";'
-          then:
-            - light.turn_off: led_ring
       - light.turn_on:
           brightness: !lambda return min ( max( id(led_ring).current_values.get_brightness() , 0.2f ) + 0.1f , 1.0f );
           red: 1
@@ -1006,11 +1016,6 @@ script:
   # A ripple effect
   - id: control_leds_jack_unplugged_recently
     then:
-      - if:
-          condition:
-            lambda: 'return id(led_ring).get_effect_name() == "Rainbow";'
-          then:
-            - light.turn_off: led_ring
       - light.turn_on:
           brightness: !lambda return min ( max( id(led_ring).current_values.get_brightness() , 0.2f ) + 0.1f , 1.0f );
           id: voice_assistant_leds
@@ -1020,11 +1025,6 @@ script:
   # A ripple effect
   - id: control_leds_jack_plugged_recently
     then:
-      - if:
-          condition:
-            lambda: 'return id(led_ring).get_effect_name() == "Rainbow";'
-          then:
-            - light.turn_off: led_ring
       - light.turn_on:
           brightness: !lambda return max( id(led_ring).current_values.get_brightness() , 0.2f );
           id: voice_assistant_leds
@@ -1034,11 +1034,6 @@ script:
   # The complete LED ring turns on
   - id: control_leds_action_button_touched
     then:
-      - if:
-          condition:
-            lambda: 'return id(led_ring).get_effect_name() == "Rainbow";'
-          then:
-            - light.turn_off: led_ring
       - light.turn_on:
           brightness: !lambda return min ( max( id(led_ring).current_values.get_brightness() , 0.2f ) + 0.1f , 1.0f );
           id: voice_assistant_leds
@@ -1048,11 +1043,6 @@ script:
   # The LED ring blinks.
   - id: control_leds_timer_ringing
     then:
-      - if:
-          condition:
-            lambda: 'return id(led_ring).get_effect_name() == "Rainbow";'
-          then:
-            - light.turn_off: led_ring
       - light.turn_on:
           brightness: !lambda return min ( max( id(led_ring).current_values.get_brightness() , 0.2f ) + 0.1f , 1.0f );
           id: voice_assistant_leds
