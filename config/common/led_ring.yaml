@@ -1,4 +1,4 @@
-Yglobals:
+globals:
   # Global index for our LEDs. So that switching between different animation does not lead to unwanted effects.
   - id: global_led_animation_index
     type: int
