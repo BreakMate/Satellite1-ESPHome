@@ -907,7 +907,7 @@ script:
           then:
             - lambda: |-
                 id(wake_reveal_active) = false;
-                id(rainbow_speed) = -id(rainbow_speed_number).state;
+                id(rainbow_speed) = -id(rainbow_speed_number).state * 2.0f;
           else:
             - lambda: |-
                 id(led_anim_speed) = 1.f;
@@ -927,7 +927,7 @@ script:
           then:
             - lambda: |-
                 id(wake_reveal_active) = false;
-                id(rainbow_speed) = id(rainbow_speed_number).state * 3.0f;
+                id(rainbow_speed) = id(rainbow_speed_number).state * 4.0f;
           else:
             - light.turn_on:
                 brightness: !lambda return max( id(led_ring).current_values.get_brightness() , 0.2f );
