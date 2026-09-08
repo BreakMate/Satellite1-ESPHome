@@ -102,31 +102,41 @@ light:
               if (volume == 0.0f) {
                 it[0] = Color(255, 0, 0);
               }
+            } else if (id(is_timer_active)) {
+              // Timer countdown: same fading-edge behavior as the solid-color "Timer Tick"
+              // effect, just tinting each lit LED with its live rainbow color instead of a
+              // flat color.
+              auto timer_ratio = 24.0f * id(first_active_timer).seconds_left / max(id(first_active_timer).total_seconds, static_cast<uint32_t>(1));
+              for (int i = 0; i < 24; i++) {
+                if (i <= timer_ratio) {
+                  float factor = min(timer_ratio - i, 1.0f);
+                  if (factor < 0.0f) factor = 0.0f;
+                  it[i] = rainbow_pixel(i) * min(255.0f * factor, 255.0f);
+                } else {
+                  it[i] = Color::BLACK;
+                }
+              }
             } else {
               for (int i = 0; i < 24; i++) {
                 it[i] = rainbow_pixel(i);
               }
 
               // Mute indicators drawn on top of the rainbow, so the muted LEDs stay solid red
-              // while every other LED keeps cycling through the rainbow underneath.
+              // while every other LED keeps cycling through the rainbow underneath. Just the
+              // red LEDs themselves — no black buffer LEDs on either side.
               if (id(master_mute_switch).state) {
                 const int mic_centers[] = {0, 6, 12, 18};
                 for (int n = 0; n < 4; n++) {
-                  int c = mic_centers[n];
-                  it[(c + 23) % 24] = Color::BLACK;
-                  it[c] = Color(255, 0, 0);
-                  it[(c + 1) % 24] = Color::BLACK;
+                  it[mic_centers[n]] = Color(255, 0, 0);
                 }
               }
               if (id(external_media_player).volume == 0.0f || id(external_media_player).is_muted()) {
                 const int quadrant_starts[] = {1, 7, 13, 19};
                 for (int n = 0; n < 4; n++) {
                   int s = quadrant_starts[n];
-                  it[s] = Color::BLACK;
                   it[(s + 1) % 24] = Color(200, 0, 0);
                   it[(s + 2) % 24] = Color(200, 0, 0);
                   it[(s + 3) % 24] = Color(200, 0, 0);
-                  it[(s + 4) % 24] = Color::BLACK;
                 }
               }
             }
@@ -891,17 +901,21 @@ script:
 
   # Script executed when the timer is ticking, to control the LEDs
   # The LEDs shows the remaining time as a fraction of the full ring.
+  # Single color: original behavior, unchanged.
+  # Rainbow: do nothing here — the Rainbow effect (still running on led_ring) already checks
+  # is_timer_active itself and draws the same fading countdown edge using rainbow colors.
   - id: control_leds_timer_ticking
     then:
       - if:
           condition:
-            lambda: 'return id(led_ring).get_effect_name() == "Rainbow";'
+            lambda: 'return id(led_ring).get_effect_name() != "Rainbow";'
           then:
-            - light.turn_off: led_ring
-      - light.turn_on:
-          brightness: !lambda return min ( max( id(led_ring).current_values.get_brightness() , 0.2f ) + 0.1f , 1.0f );
-          id: voice_assistant_leds
-          effect: "Timer tick"
+            - light.turn_on:
+                brightness: !lambda return min ( max( id(led_ring).current_values.get_brightness() , 0.2f ) + 0.1f , 1.0f );
+                id: voice_assistant_leds
+                effect: "Timer tick"
+          else:
+            - light.turn_off: voice_assistant_leds
 
   # Script executed when the timer is ticking, to control the LEDs
   # The LEDs shows the remaining time as a fraction of the full ring.
