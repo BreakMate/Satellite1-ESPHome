@@ -377,6 +377,7 @@ light:
               }
               id(rainbow_hue) += id(rainbow_speed);
               while (id(rainbow_hue) >= 360.0f) id(rainbow_hue) -= 360.0f;
+              while (id(rainbow_hue) < 0.0f) id(rainbow_hue) += 360.0f;
             } else {
               if (initial_run) {
                 // set voice_assistant_leds light to colors based on led_ring
@@ -535,6 +536,7 @@ light:
             if (use_rainbow) {
               id(rainbow_hue) += id(rainbow_speed);
               while (id(rainbow_hue) >= 360.0f) id(rainbow_hue) -= 360.0f;
+              while (id(rainbow_hue) < 0.0f) id(rainbow_hue) += 360.0f;
             }
             if ( id(master_mute_switch).state ) {
               it[3] = muted_color;
@@ -678,6 +680,7 @@ light:
             if (use_rainbow) {
               id(rainbow_hue) += id(rainbow_speed);
               while (id(rainbow_hue) >= 360.0f) id(rainbow_hue) -= 360.0f;
+              while (id(rainbow_hue) < 0.0f) id(rainbow_hue) += 360.0f;
             }
             index = (index + 1);
       - addressable_lambda:
@@ -729,6 +732,7 @@ light:
             if (use_rainbow) {
               id(rainbow_hue) += id(rainbow_speed);
               while (id(rainbow_hue) >= 360.0f) id(rainbow_hue) -= 360.0f;
+              while (id(rainbow_hue) < 0.0f) id(rainbow_hue) += 360.0f;
             }
             index = (index + 1);
 
