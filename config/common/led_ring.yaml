@@ -182,6 +182,7 @@ light:
 
             id(rainbow_hue) += id(rainbow_speed);
             while (id(rainbow_hue) >= 360.0f) id(rainbow_hue) -= 360.0f;
+            while (id(rainbow_hue) < 0.0f) id(rainbow_hue) += 360.0f;
 
   # Voice Assistant LED ring. Remapping of the hardware LED.
   # This light is not exposed. The device controls it
