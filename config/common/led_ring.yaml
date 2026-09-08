@@ -4,7 +4,7 @@ globals:
     type: int
     restore_value: no
     initial_value: '0'
-  - id: led_anim_speed
+  - id: led_anim_
     type: float
     restore_value: no
     initial_value: '0.5'
@@ -893,7 +893,7 @@ script:
           then:
             - lambda: |-
                 id(wake_reveal_active) = false;
-                id(rainbow_speed) = id(rainbow_speed_number).state * 2.0f;
+                id(rainbow_speed) = id(rainbow_speed_number).state * 3.0f;
           else:
             - light.turn_on:
                 brightness: !lambda return max( id(led_ring).current_values.get_brightness() , 0.2f );
@@ -902,7 +902,7 @@ script:
 
   # Script executed when the voice assistant is replying
   # Single color: original fast anticlockwise spin, unchanged.
-  # Rainbow: back to spinning forward at the normal (user-configured) speed during the response.
+  # Rainbow: back to spinning forward at the normal (user-configured)  during the response.
   - id: control_leds_voice_assistant_replying_phase
     then:
       - if:
@@ -911,10 +911,10 @@ script:
           then:
             - lambda: |-
                 id(wake_reveal_active) = false;
-                id(rainbow_speed) = id(rainbow_speed_number).state;
+                id(rainbow_) = id(rainbow__number).state;
           else:
             - lambda: |-
-                id(led_anim_speed) = -1.f;
+                id(led_anim_) = -1.f;
             - light.turn_on:
                 brightness: !lambda return max( id(led_ring).current_values.get_brightness() , 0.2f );
                 id: voice_assistant_leds
