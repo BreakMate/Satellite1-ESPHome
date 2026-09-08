@@ -110,12 +110,17 @@ light:
             };
 
             if (id(btn_action).state || id(jack_plugged_recently) || id(jack_unplugged_recently) ||
-                id(warning) || id(timer_ringing).state) {
-              // Another effect (Action Button, Jack Plugged/Unplugged, Warning, or Timer Ringing)
-              // owns the physical LEDs right now. Suspend Rainbow entirely by not writing any
-              // pixels, WITHOUT touching led_ring's on/off state or effect selection — turning a
-              // light off resets its selected effect in ESPHome, which is what previously caused
-              // Rainbow to get replaced by a static color after one of these was triggered.
+                id(warning) || id(timer_ringing).state ||
+                id(voice_assistant_phase) == ${voice_assist_not_ready_phase_id} ||
+                id(voice_assistant_phase) == ${voice_assist_error_phase_id}) {
+              // Another effect (Action Button, Jack Plugged/Unplugged, Warning, Timer Ringing,
+              // or the voice assistant's brief Not Ready/Error states) owns the physical LEDs
+              // right now. Suspend Rainbow entirely by not writing any pixels, WITHOUT touching
+              // led_ring's on/off state or effect selection — turning a light off resets its
+              // selected effect in ESPHome, which is what previously caused Rainbow to get
+              // replaced by a static color after one of these was triggered. The voice assistant
+              // briefly passes through Not Ready as part of its normal pipeline reset right after
+              // a response finishes, which is what caused the flicker right after TTS ends.
               return;
             }
 
