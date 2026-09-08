@@ -71,7 +71,7 @@ light:
               // that make up blended colors, making them pop as much as the primaries.
               // Try values between 1.8 and 3.0. GAMMA = 1.0 disables the effect entirely
               // (back to today's look).
-              const float GAMMA = 2.2f;
+              const float GAMMA = 1.4f;
               r = powf(r, 1.0f / GAMMA);
               g = powf(g, 1.0f / GAMMA);
               b = powf(b, 1.0f / GAMMA);
