@@ -31,6 +31,22 @@ globals:
     type: uint32_t
     restore_value: no
     initial_value: '0'
+  # Remembers that the user's chosen ambient effect is Rainbow, even while led_ring is turned
+  # off. ESPHome resets a light's "effect" to None whenever it's turned off, so
+  # get_effect_name() alone can't tell us this once the ring is off — this global is the
+  # persistent source of truth instead. Survives reboots (restore_value: yes) since it reflects
+  # a preference, not a transient animation state.
+  - id: rainbow_selected
+    type: bool
+    restore_value: yes
+    initial_value: 'false'
+  # True while led_ring has been temporarily turned on to show a voice-assistant interaction
+  # even though the user had it switched off. Used to turn it back off afterward instead of
+  # leaving it on.
+  - id: rainbow_temporarily_on
+    type: bool
+    restore_value: no
+    initial_value: 'false'
 light:
   # Hardware LED ring. Not used because remapping needed
   - platform: esp32_rmt_led_strip
@@ -59,6 +75,15 @@ light:
       - id: hw_led_ring
         from: 0
         to: 23
+    # Whenever the light is genuinely on, remember whether Rainbow is the active effect into
+    # a persistent global — see rainbow_selected above for why this can't just be read live
+    # from get_effect_name() later. Skipped while turning off, since ESPHome resets the
+    # effect to None as part of that transition and we don't want that to erase our memory.
+    on_state:
+      - lambda: |-
+          if (id(led_ring).current_values.get_state()) {
+            id(rainbow_selected) = (id(led_ring).get_effect_name() == "Rainbow");
+          }
     effects:
       - addressable_lambda:
           name: "Rainbow"
@@ -351,7 +376,7 @@ light:
           name: "Action Button Touched"
           update_interval: 16ms
           lambda: |-
-            if (id(led_ring).get_effect_name() == "Rainbow") {
+            if (id(rainbow_selected)) {
               auto hsv_to_rgb = [](float h) -> Color {
                 float r, g, b;
                 int i = int(h / 60.0f) % 6;
@@ -500,7 +525,7 @@ light:
               brightness_step = 0;
               brightness_decreasing = true;
             }
-            bool use_rainbow = id(led_ring).get_effect_name() == "Rainbow";
+            bool use_rainbow = id(rainbow_selected);
             auto hsv_to_rgb = [](float h) -> Color {
               float r, g, b;
               int i = int(h / 60.0f) % 6;
@@ -639,7 +664,7 @@ light:
             if (initial_run) {
               index = 0;
             }
-            bool use_rainbow = id(led_ring).get_effect_name() == "Rainbow";
+            bool use_rainbow = id(rainbow_selected);
             auto hsv_to_rgb = [](float h) -> Color {
               float r, g, b;
               int i = int(h / 60.0f) % 6;
@@ -691,7 +716,7 @@ light:
             if (initial_run) {
               index = 0;
             }
-            bool use_rainbow = id(led_ring).get_effect_name() == "Rainbow";
+            bool use_rainbow = id(rainbow_selected);
             auto hsv_to_rgb = [](float h) -> Color {
               float r, g, b;
               int i = int(h / 60.0f) % 6;
@@ -864,27 +889,45 @@ script:
       - light.turn_off: voice_assistant_leds
       - if:
           condition:
-            lambda: 'return id(led_ring).get_effect_name() == "Rainbow";'
+            lambda: 'return id(rainbow_selected) && id(rainbow_temporarily_on);'
           then:
-            - lambda: |-
-                id(rainbow_speed) = id(rainbow_speed_number).state;
-      - if:
-          condition:
-            light.is_on: led_ring
-          then:
-            light.turn_on: led_ring
+            # We turned led_ring on ourselves just for this interaction (it was off before the
+            # wake word) — return it to off now, respecting the user's actual preference.
+            - light.turn_off: led_ring
+            - lambda: id(rainbow_temporarily_on) = false;
+          else:
+            - if:
+                condition:
+                  lambda: 'return id(rainbow_selected);'
+                then:
+                  - lambda: |-
+                      id(rainbow_speed) = id(rainbow_speed_number).state;
+            - if:
+                condition:
+                  light.is_on: led_ring
+                then:
+                  light.turn_on: led_ring
 
   # Script executed when the voice assistant is waiting for a command (After the wake word)
   # Single color: original slow clockwise spin, unchanged.
-  # Rainbow: all LEDs turn off, then the rainbow wipes back on around the ring over 250ms
-  # to acknowledge the wake word.
+  # Rainbow: if led_ring is off, turns it on with Rainbow re-selected (remembering to turn it
+  # back off once idle), then all LEDs turn off and the rainbow wipes back on around the ring
+  # over 250ms to acknowledge the wake word.
   - id: control_leds_voice_assistant_waiting_for_command_phase
     then:
       - if:
           condition:
-            lambda: 'return id(led_ring).get_effect_name() == "Rainbow";'
+            lambda: 'return id(rainbow_selected);'
           then:
             - lambda: |-
+                if (!id(led_ring).current_values.get_state()) {
+                  id(rainbow_temporarily_on) = true;
+                  auto call = id(led_ring).turn_on();
+                  call.set_effect("Rainbow");
+                  call.perform();
+                } else {
+                  id(rainbow_temporarily_on) = false;
+                }
                 id(rainbow_speed) = 0.f;
                 id(wake_reveal_active) = true;
                 id(wake_reveal_start_ms) = millis();
@@ -898,12 +941,12 @@ script:
 
   # Script executed when the voice assistant is listening to a command
   # Single color: original fast clockwise spin, unchanged.
-  # Rainbow: spins in the opposite direction, at the user-configured speed, while it hears you.
+  # Rainbow: spins in the opposite direction, at 2x the user-configured speed, while it hears you.
   - id: control_leds_voice_assistant_listening_for_command_phase
     then:
       - if:
           condition:
-            lambda: 'return id(led_ring).get_effect_name() == "Rainbow";'
+            lambda: 'return id(rainbow_selected);'
           then:
             - lambda: |-
                 id(wake_reveal_active) = false;
@@ -918,12 +961,12 @@ script:
 
   # Script executed when the voice assistant is thinking about a command
   # Single color: original "Thinking" blink effect, unchanged.
-  # Rainbow: spins in the intended (forward) direction at 3x the user-configured speed.
+  # Rainbow: spins in the intended (forward) direction at 4x the user-configured speed.
   - id: control_leds_voice_assistant_thinking_phase
     then:
       - if:
           condition:
-            lambda: 'return id(led_ring).get_effect_name() == "Rainbow";'
+            lambda: 'return id(rainbow_selected);'
           then:
             - lambda: |-
                 id(wake_reveal_active) = false;
@@ -941,7 +984,7 @@ script:
     then:
       - if:
           condition:
-            lambda: 'return id(led_ring).get_effect_name() == "Rainbow";'
+            lambda: 'return id(rainbow_selected);'
           then:
             - lambda: |-
                 id(wake_reveal_active) = false;
@@ -993,7 +1036,7 @@ script:
     then:
       - if:
           condition:
-            lambda: 'return id(led_ring).get_effect_name() != "Rainbow";'
+            lambda: 'return !id(rainbow_selected);'
           then:
             - light.turn_on:
                 brightness: !lambda return min ( max( id(led_ring).current_values.get_brightness() , 0.2f ) + 0.1f , 1.0f );
@@ -1022,7 +1065,7 @@ script:
     then:
       - if:
           condition:
-            lambda: 'return id(led_ring).get_effect_name() != "Rainbow";'
+            lambda: 'return !id(rainbow_selected);'
           then:
             - light.turn_on:
                 brightness: !lambda return min ( max( id(led_ring).current_values.get_brightness() , 0.2f ) + 0.1f , 1.0f );
@@ -1076,7 +1119,7 @@ script:
     then:
       - if:
           condition:
-            lambda: 'return id(led_ring).get_effect_name() != "Rainbow";'
+            lambda: 'return !id(rainbow_selected);'
           then:
             - light.turn_on:
                 brightness: !lambda return min ( max( id(led_ring).current_values.get_brightness() , 0.2f ) + 0.1f , 1.0f );
