@@ -1,4 +1,44 @@
 globals:
+  ##############################################################################################
+  # RAINBOW EFFECT TUNABLES
+  # Every value in this block is also exposed as a Home Assistant number entity on the device
+  # page (grouped with "Rainbow Speed" further down), so these can be adjusted live without
+  # reflashing. The values here are just the defaults used on first boot / after a factory
+  # reset — after that, each entity's own restored value takes over.
+  ##############################################################################################
+  # Degrees of hue shift per frame for the Rainbow effect while idle. Adjustable live via the
+  # "Rainbow Speed" number entity.
+  - id: rainbow_speed
+    type: float
+    restore_value: yes
+    initial_value: '2.0'
+  # Gamma correction exponent for the Rainbow effect's color math. 1.0 = no correction (raw
+  # colors); higher values boost blended hues (orange, cyan, purple, etc.) so they don't look
+  # washed out next to pure red/green/blue. Try 1.0-3.0. "Rainbow Gamma" number entity.
+  - id: rainbow_gamma
+    type: float
+    restore_value: yes
+    initial_value: '1.1'
+  # How long the wake-word "rainbow wipes on around the ring" reveal animation takes, in
+  # milliseconds. "Rainbow Wake Reveal (ms)" number entity.
+  - id: wake_reveal_duration_ms
+    type: float
+    restore_value: yes
+    initial_value: '250'
+  # Multiplier applied to Rainbow Speed while listening (spins in the opposite direction).
+  # "Rainbow Reverse Speed x" number entity.
+  - id: rainbow_reverse_multiplier
+    type: float
+    restore_value: yes
+    initial_value: '2.0'
+  # Multiplier applied to Rainbow Speed while thinking/processing (spins forward, faster).
+  # "Rainbow Thinking Speed x" number entity.
+  - id: rainbow_thinking_multiplier
+    type: float
+    restore_value: yes
+    initial_value: '4.0'
+  ##############################################################################################
+
   # Global index for our LEDs. So that switching between different animation does not lead to unwanted effects.
   - id: global_led_animation_index
     type: int
@@ -8,12 +48,6 @@ globals:
     type: float
     restore_value: no
     initial_value: '0.5'
-  # Degrees of hue shift per frame for the Rainbow effect. Adjustable live via the
-  # "Rainbow Speed" number entity below.
-  - id: rainbow_speed
-    type: float
-    restore_value: yes
-    initial_value: '2.0'
   # Current phase (0-360 degrees) of the Rainbow effect. Kept as a global rather than a local
   # static variable so other effects (e.g. the volume bar) can read the same live rotation
   # instead of drifting out of sync with their own separate counters.
@@ -21,8 +55,8 @@ globals:
     type: float
     restore_value: no
     initial_value: '0.0'
-  # Tracks whether the 250ms "rainbow turning on in a circle" wake-word reveal is
-  # currently playing, and when it started (for the elapsed-time calculation).
+  # Tracks whether the wake-word "rainbow turning on in a circle" reveal is currently playing,
+  # and when it started (for the elapsed-time calculation).
   - id: wake_reveal_active
     type: bool
     restore_value: no
@@ -109,9 +143,9 @@ light:
               // LED channel at full power reads as "brighter" to the eye than two channels
               // blended at partial power. Raising GAMMA boosts the low/mid channel values
               // that make up blended colors, making them pop as much as the primaries.
-              // Try values between 1.0 (no correction) and 3.0 (strong correction). GAMMA = 1.0
-              // disables the effect entirely (back to today's look).
-              const float GAMMA = 1.1f;
+              // Controlled live via the "Rainbow Gamma" number entity (try 1.0-3.0; 1.0
+              // disables the effect entirely).
+              const float GAMMA = id(rainbow_gamma);
               r = powf(r, 1.0f / GAMMA);
               g = powf(g, 1.0f / GAMMA);
               b = powf(b, 1.0f / GAMMA);
@@ -186,13 +220,13 @@ light:
               // Wake word acknowledgment: the rainbow wipes on around the ring over 250ms,
               // starting from all LEDs off.
               uint32_t elapsed = millis() - id(wake_reveal_start_ms);
-              if (elapsed >= 250) {
+              if (elapsed >= (uint32_t) id(wake_reveal_duration_ms)) {
                 id(wake_reveal_active) = false;
                 for (int i = 0; i < 24; i++) {
                   it[i] = rainbow_pixel(i);
                 }
               } else {
-                float lit_f = (elapsed / 250.0f) * 24.0f;
+                float lit_f = (elapsed / id(wake_reveal_duration_ms)) * 24.0f;
                 int lit_count = int(lit_f);
                 float partial = lit_f - lit_count;
                 for (int i = 0; i < 24; i++) {
@@ -389,7 +423,7 @@ light:
                   case 4: r = f; g = 0; b = 1; break;
                   default: r = 1; g = 0; b = 1 - f; break;
                 }
-                const float GAMMA = 1.1f;
+                const float GAMMA = id(rainbow_gamma);
                 r = powf(r, 1.0f / GAMMA);
                 g = powf(g, 1.0f / GAMMA);
                 b = powf(b, 1.0f / GAMMA);
@@ -538,7 +572,7 @@ light:
                 case 4: r = f; g = 0; b = 1; break;
                 default: r = 1; g = 0; b = 1 - f; break;
               }
-              const float GAMMA = 1.1f;
+              const float GAMMA = id(rainbow_gamma);
               r = powf(r, 1.0f / GAMMA);
               g = powf(g, 1.0f / GAMMA);
               b = powf(b, 1.0f / GAMMA);
@@ -677,7 +711,7 @@ light:
                 case 4: r = f; g = 0; b = 1; break;
                 default: r = 1; g = 0; b = 1 - f; break;
               }
-              const float GAMMA = 1.1f;
+              const float GAMMA = id(rainbow_gamma);
               r = powf(r, 1.0f / GAMMA);
               g = powf(g, 1.0f / GAMMA);
               b = powf(b, 1.0f / GAMMA);
@@ -729,7 +763,7 @@ light:
                 case 4: r = f; g = 0; b = 1; break;
                 default: r = 1; g = 0; b = 1 - f; break;
               }
-              const float GAMMA = 1.1f;
+              const float GAMMA = id(rainbow_gamma);
               r = powf(r, 1.0f / GAMMA);
               g = powf(g, 1.0f / GAMMA);
               b = powf(b, 1.0f / GAMMA);
@@ -776,6 +810,67 @@ number:
     restore_value: true
     set_action:
       - lambda: id(rainbow_speed) = x;
+
+  # Gamma correction for the Rainbow effect's colors. 1.0 = off/raw colors; higher values make
+  # blended hues (orange, cyan, purple, etc.) pop as much as pure red/green/blue.
+  - platform: template
+    name: "Rainbow Gamma"
+    id: rainbow_gamma_number
+    icon: "mdi:contrast-circle"
+    entity_category: config
+    min_value: 1.0
+    max_value: 3.0
+    step: 0.1
+    initial_value: 1.1
+    optimistic: true
+    restore_value: true
+    set_action:
+      - lambda: id(rainbow_gamma) = x;
+
+  # How long the wake-word "rainbow wipes on around the ring" reveal animation takes.
+  - platform: template
+    name: "Rainbow Wake Reveal (ms)"
+    id: wake_reveal_duration_number
+    icon: "mdi:timer-outline"
+    entity_category: config
+    min_value: 50
+    max_value: 1000
+    step: 50
+    initial_value: 250
+    optimistic: true
+    restore_value: true
+    set_action:
+      - lambda: id(wake_reveal_duration_ms) = x;
+
+  # Multiplier applied to Rainbow Speed while listening (reverse direction).
+  - platform: template
+    name: "Rainbow Reverse Speed x"
+    id: rainbow_reverse_multiplier_number
+    icon: "mdi:rotate-left"
+    entity_category: config
+    min_value: 0.5
+    max_value: 5.0
+    step: 0.5
+    initial_value: 2.0
+    optimistic: true
+    restore_value: true
+    set_action:
+      - lambda: id(rainbow_reverse_multiplier) = x;
+
+  # Multiplier applied to Rainbow Speed while thinking/processing (forward direction).
+  - platform: template
+    name: "Rainbow Thinking Speed x"
+    id: rainbow_thinking_multiplier_number
+    icon: "mdi:rotate-right"
+    entity_category: config
+    min_value: 0.5
+    max_value: 8.0
+    step: 0.5
+    initial_value: 4.0
+    optimistic: true
+    restore_value: true
+    set_action:
+      - lambda: id(rainbow_thinking_multiplier) = x;
 
 script:
   # Master script controlling the LEDs, based on different conditions : initialization in progress, wifi and api connected and voice assistant phase.
@@ -912,7 +1007,7 @@ script:
   # Single color: original slow clockwise spin, unchanged.
   # Rainbow: if led_ring is off, turns it on with Rainbow re-selected (remembering to turn it
   # back off once idle), then all LEDs turn off and the rainbow wipes back on around the ring
-  # over 250ms to acknowledge the wake word.
+  # (duration set by the "Rainbow Wake Reveal (ms)" number entity) to acknowledge the wake word.
   - id: control_leds_voice_assistant_waiting_for_command_phase
     then:
       - if:
@@ -941,7 +1036,8 @@ script:
 
   # Script executed when the voice assistant is listening to a command
   # Single color: original fast clockwise spin, unchanged.
-  # Rainbow: spins in the opposite direction, at 2x the user-configured speed, while it hears you.
+  # Rainbow: spins in the opposite direction, at the "Rainbow Reverse Speed x" multiplier
+  # applied to the Rainbow Speed slider, while it hears you.
   - id: control_leds_voice_assistant_listening_for_command_phase
     then:
       - if:
@@ -950,7 +1046,7 @@ script:
           then:
             - lambda: |-
                 id(wake_reveal_active) = false;
-                id(rainbow_speed) = -id(rainbow_speed_number).state * 2.0f;
+                id(rainbow_speed) = -id(rainbow_speed_number).state * id(rainbow_reverse_multiplier);
           else:
             - lambda: |-
                 id(led_anim_speed) = 1.f;
@@ -961,7 +1057,8 @@ script:
 
   # Script executed when the voice assistant is thinking about a command
   # Single color: original "Thinking" blink effect, unchanged.
-  # Rainbow: spins in the intended (forward) direction at 4x the user-configured speed.
+  # Rainbow: spins in the intended (forward) direction at the "Rainbow Thinking Speed x"
+  # multiplier applied to the Rainbow Speed slider.
   - id: control_leds_voice_assistant_thinking_phase
     then:
       - if:
@@ -970,7 +1067,7 @@ script:
           then:
             - lambda: |-
                 id(wake_reveal_active) = false;
-                id(rainbow_speed) = id(rainbow_speed_number).state * 4.0f;
+                id(rainbow_speed) = id(rainbow_speed_number).state * id(rainbow_thinking_multiplier);
           else:
             - light.turn_on:
                 brightness: !lambda return max( id(led_ring).current_values.get_brightness() , 0.2f );
