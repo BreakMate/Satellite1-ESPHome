@@ -245,11 +245,15 @@ light:
               }
 
               // Mute indicators drawn on top of the rainbow, using the contrasting color so
-              // they stand out clearly no matter what the rainbow is doing at that LED.
+              // they stand out clearly no matter what the rainbow is doing at that LED. Each
+              // corner gets a 3-LED cluster centered on the mic position (12 LEDs total).
               if (id(master_mute_switch).state) {
                 const int mic_centers[] = {0, 6, 12, 18};
                 for (int n = 0; n < 4; n++) {
-                  it[mic_centers[n]] = contrast_pixel(mic_centers[n]);
+                  int c = mic_centers[n];
+                  it[(c + 23) % 24] = contrast_pixel((c + 23) % 24);
+                  it[c] = contrast_pixel(c);
+                  it[(c + 1) % 24] = contrast_pixel((c + 1) % 24);
                 }
               }
               if (id(external_media_player).volume == 0.0f || id(external_media_player).is_muted()) {
