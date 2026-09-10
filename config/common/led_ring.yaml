@@ -839,7 +839,7 @@ number:
     entity_category: config
     min_value: 50
     max_value: 1000
-    step: 50
+    step: 25
     initial_value: 250
     optimistic: true
     restore_value: true
@@ -853,7 +853,7 @@ number:
     icon: "mdi:rotate-left"
     entity_category: config
     min_value: 0.5
-    max_value: 5.0
+    max_value: 10
     step: 0.5
     initial_value: 2.0
     optimistic: true
@@ -868,7 +868,7 @@ number:
     icon: "mdi:rotate-right"
     entity_category: config
     min_value: 0.5
-    max_value: 8.0
+    max_value: 10
     step: 0.5
     initial_value: 4.0
     optimistic: true
