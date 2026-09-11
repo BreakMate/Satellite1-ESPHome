@@ -109,6 +109,22 @@ light:
       - id: hw_led_ring
         from: 0
         to: 23
+    # Whenever the light turns on — from anywhere: Home Assistant, a physical control, an
+    # automation, not just our own scripts — re-select Rainbow if that's the user's
+    # remembered preference. Necessary because ESPHome resets a light's effect to None as
+    # part of turning off (a known upstream behavior, see esphome/esphome#12372), so without
+    # this, Rainbow would silently fall back to a static color every time the ring is toggled.
+    # on_turn_on always fires before on_state for the same event (registration order is fixed
+    # by codegen), and this call completes synchronously, so on_state below always sees the
+    # correctly-restored effect rather than the transient "None".
+    on_turn_on:
+      - if:
+          condition:
+            lambda: 'return id(rainbow_selected) && id(led_ring).get_effect_name() != "Rainbow";'
+          then:
+            - light.turn_on:
+                id: led_ring
+                effect: "Rainbow"
     # Whenever the light is genuinely on, remember whether Rainbow is the active effect into
     # a persistent global — see rainbow_selected above for why this can't just be read live
     # from get_effect_name() later. Skipped while turning off, since ESPHome resets the
@@ -839,7 +855,7 @@ number:
     entity_category: config
     min_value: 50
     max_value: 1000
-    step: 25
+    step: 50
     initial_value: 250
     optimistic: true
     restore_value: true
@@ -853,7 +869,7 @@ number:
     icon: "mdi:rotate-left"
     entity_category: config
     min_value: 0.5
-    max_value: 10
+    max_value: 5.0
     step: 0.5
     initial_value: 2.0
     optimistic: true
@@ -868,7 +884,7 @@ number:
     icon: "mdi:rotate-right"
     entity_category: config
     min_value: 0.5
-    max_value: 10
+    max_value: 8.0
     step: 0.5
     initial_value: 4.0
     optimistic: true
@@ -887,6 +903,39 @@ script:
           if (id(is_timer_active)){
             id(fetch_first_active_timer).execute();
           }
+
+          // If Rainbow is the user's chosen effect but led_ring is currently off, and
+          // something is about to need the display (volume, mute, a timer, a button, the
+          // voice assistant, etc.), temporarily turn it on so Rainbow can actually render —
+          // its effect only runs while the light is genuinely on. control_leds_voice_assistant_
+          // idle_phase below turns it back off once nothing needs it anymore. System/boot
+          // states (xmos flashing, improv BLE, init, no HA connection) are intentionally
+          // excluded — those use fixed colors regardless of Rainbow and firing this during
+          // boot would cause unwanted flashes.
+          bool rainbow_overlay_needed =
+              id(volume_buttons_touched) ||
+              id(btn_action).state ||
+              id(jack_plugged_recently) ||
+              id(jack_unplugged_recently) ||
+              id(warning) ||
+              id(timer_ringing).state ||
+              (id(voice_assistant_phase) == ${voice_assist_waiting_for_command_phase_id}) ||
+              (id(voice_assistant_phase) == ${voice_assist_listening_for_command_phase_id}) ||
+              (id(voice_assistant_phase) == ${voice_assist_thinking_phase_id}) ||
+              (id(voice_assistant_phase) == ${voice_assist_replying_phase_id}) ||
+              (id(voice_assistant_phase) == ${voice_assist_error_phase_id}) ||
+              (id(voice_assistant_phase) == ${voice_assist_not_ready_phase_id}) ||
+              id(is_timer_active) ||
+              id(master_mute_switch).state ||
+              id(external_media_player).volume == 0.0f ||
+              id(external_media_player).is_muted();
+          if (id(rainbow_selected) && rainbow_overlay_needed && !id(led_ring).current_values.get_state()) {
+            id(rainbow_temporarily_on) = true;
+            auto call = id(led_ring).turn_on();
+            call.set_effect("Rainbow");
+            call.perform();
+          }
+
           if (id(xmos_flashing_state) > 0) {
             id(control_leds_xmos_flasher_state_update).execute();
           } else if (id(improv_ble_in_progress)) {
@@ -1009,9 +1058,10 @@ script:
 
   # Script executed when the voice assistant is waiting for a command (After the wake word)
   # Single color: original slow clockwise spin, unchanged.
-  # Rainbow: if led_ring is off, turns it on with Rainbow re-selected (remembering to turn it
-  # back off once idle), then all LEDs turn off and the rainbow wipes back on around the ring
-  # (duration set by the "Rainbow Wake Reveal (ms)" number entity) to acknowledge the wake word.
+  # Rainbow: all LEDs turn off, then the rainbow wipes back on around the ring (duration set
+  # by the "Rainbow Wake Reveal (ms)" number entity) to acknowledge the wake word. If led_ring
+  # was off, the centralized wake-up logic at the top of control_leds already turned it back
+  # on with Rainbow re-selected before this script runs.
   - id: control_leds_voice_assistant_waiting_for_command_phase
     then:
       - if:
@@ -1019,14 +1069,6 @@ script:
             lambda: 'return id(rainbow_selected);'
           then:
             - lambda: |-
-                if (!id(led_ring).current_values.get_state()) {
-                  id(rainbow_temporarily_on) = true;
-                  auto call = id(led_ring).turn_on();
-                  call.set_effect("Rainbow");
-                  call.perform();
-                } else {
-                  id(rainbow_temporarily_on) = false;
-                }
                 id(rainbow_speed) = 0.f;
                 id(wake_reveal_active) = true;
                 id(wake_reveal_start_ms) = millis();
