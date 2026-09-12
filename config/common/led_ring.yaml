@@ -116,7 +116,13 @@ light:
     # this, Rainbow would silently fall back to a static color every time the ring is toggled.
     # on_turn_on always fires before on_state for the same event (registration order is fixed
     # by codegen), and this call completes synchronously, so on_state below always sees the
-    # correctly-restored effect rather than the transient "None".
+    # correctly-restored effect rather than the transient "None". Also re-runs control_leds
+    # afterward so e.g. the mute display correctly hands off from its off-state 4-LED fallback
+    # to Rainbow's own overlay the instant the ring actually turns on — without this, muting
+    # while off then turning the ring on would leave both trying to draw at once, causing a
+    # stutter. Unlike on_state (fires on every single light update), on_turn_on only fires once
+    # per genuine off->on transition (verified in ESPHome's own source), so this is a narrow,
+    # low-frequency trigger rather than something that runs constantly.
     on_turn_on:
       - if:
           condition:
@@ -125,6 +131,11 @@ light:
             - light.turn_on:
                 id: led_ring
                 effect: "Rainbow"
+      - script.execute: control_leds
+    # Mirrors on_turn_on above: re-syncs overlay scripts (e.g. mute's fallback vs. Rainbow's own
+    # overlay) the instant the ring actually turns off. Also only fires once per transition.
+    on_turn_off:
+      - script.execute: control_leds
     # Whenever the light is genuinely on, remember whether Rainbow is the active effect into
     # a persistent global — see rainbow_selected above for why this can't just be read live
     # from get_effect_name() later. Skipped while turning off, since ESPHome resets the
@@ -177,24 +188,18 @@ light:
             if (id(btn_action).state || id(jack_plugged_recently) || id(jack_unplugged_recently) ||
                 id(warning) || id(timer_ringing).state ||
                 id(voice_assistant_phase) == ${voice_assist_not_ready_phase_id} ||
-                id(voice_assistant_phase) == ${voice_assist_error_phase_id} ||
-                id(master_mute_switch).state ||
-                (!id(volume_buttons_touched) &&
-                 (id(external_media_player).volume == 0.0f || id(external_media_player).is_muted()))) {
+                id(voice_assistant_phase) == ${voice_assist_error_phase_id}) {
               // Another effect (Action Button, Jack Plugged/Unplugged, Warning, Timer Ringing,
-              // Mute/Silenced, or the voice assistant's brief Not Ready/Error states) owns the
-              // physical LEDs right now. Suspend Rainbow entirely by not writing any pixels,
-              // WITHOUT touching led_ring's on/off state or effect selection — turning a light
-              // off resets its selected effect in ESPHome, which is what previously caused
-              // Rainbow to get replaced by a static color after one of these was triggered. The
-              // voice assistant briefly passes through Not Ready as part of its normal pipeline
-              // reset right after a response finishes, which is what caused the flicker right
-              // after TTS ends. Mute is handled identically regardless of state (Rainbow on,
-              // solid color, or led_ring off) — voice_assistant_leds always shows the same
-              // plain red-with-black-neighbors pattern via the "Muted or Silent" effect below.
-              // Volume==0/muted is excluded here while volume_buttons_touched is active, so the
-              // live volume bar below still gets to show its own "silenced" indicator instead
-              // of Rainbow going dark mid-drag right as the slider reaches zero.
+              // or the voice assistant's brief Not Ready/Error states) owns the physical LEDs
+              // right now. Suspend Rainbow entirely by not writing any pixels, WITHOUT touching
+              // led_ring's on/off state or effect selection — turning a light off resets its
+              // selected effect in ESPHome, which is what previously caused Rainbow to get
+              // replaced by a static color after one of these was triggered. The voice assistant
+              // briefly passes through Not Ready as part of its normal pipeline reset right after
+              // a response finishes, which is what caused the flicker right after TTS ends.
+              // Mute is NOT in this list — Rainbow keeps animating in the background while
+              // muted, with its own solid-red mute overlay drawn on top (see the "else" branch
+              // below).
               return;
             }
 
@@ -250,10 +255,31 @@ light:
                 }
               }
             } else {
-              // Plain idle rainbow. Mute/silenced states are caught by the early-return guard
-              // above — voice_assistant_leds handles that display exclusively now.
+              // Plain idle rainbow, with a solid-red mute overlay drawn on top if muted.
               for (int i = 0; i < 24; i++) {
                 it[i] = rainbow_pixel(i);
+              }
+
+              // Each corner gets a 3-LED cluster centered on the mic position (12 LEDs total),
+              // solid red so it reads clearly as a mute state rather than blending into the
+              // rainbow underneath.
+              if (id(master_mute_switch).state) {
+                const int mic_centers[] = {0, 6, 12, 18};
+                for (int n = 0; n < 4; n++) {
+                  int c = mic_centers[n];
+                  it[(c + 23) % 24] = Color(255, 0, 0);
+                  it[c] = Color(255, 0, 0);
+                  it[(c + 1) % 24] = Color(255, 0, 0);
+                }
+              }
+              if (id(external_media_player).volume == 0.0f || id(external_media_player).is_muted()) {
+                const int quadrant_starts[] = {1, 7, 13, 19};
+                for (int n = 0; n < 4; n++) {
+                  int s = quadrant_starts[n];
+                  it[(s + 1) % 24] = Color(200, 0, 0);
+                  it[(s + 2) % 24] = Color(200, 0, 0);
+                  it[(s + 3) % 24] = Color(200, 0, 0);
+                }
               }
             }
 
@@ -1151,17 +1177,27 @@ script:
   # Rainbow: do nothing here — the Rainbow effect (still running on led_ring) already draws
   # its own mute indicators every frame, so the rest of the ring keeps cycling normally.
   # Script executed when the voice assistant is muted or silent
-  # Same behavior in every case — Rainbow on, solid color, or led_ring off: the mic-mute LED
-  # turns red with its neighbors off, one red LED next to the speaker grill if silenced, using
-  # the "Muted or Silent" effect. Rainbow suspends itself whenever mute is active (see the
-  # early-return guard in the Rainbow effect above), so there's never a risk of it racing with
-  # this for control of the physical LEDs, regardless of led_ring's on/off state.
+  # Single color: original behavior, unchanged — LED next to the 2 microphones turn red /
+  # one red LED next to the speaker grill, using the "Muted or Silent" effect.
+  # Rainbow, led_ring genuinely on: do nothing here — the Rainbow effect (still running on
+  # led_ring) already draws its own solid-red mute overlay every frame (12 LEDs total, 3 per
+  # corner) on top of the moving rainbow, so the rest of the ring keeps cycling normally.
+  # Rainbow, led_ring off: Rainbow isn't running (effects only run while the light is on), so
+  # there's no risk of racing. Rather than waking the full Rainbow display just to show a mute
+  # indicator, fall back to the classic 4-LED mic-mute / quadrant speaker-mute pattern on a
+  # black background — the same "Muted or Silent" effect solid-color mode already uses.
   - id: control_leds_muted_or_silent
     then:
-      - light.turn_on:
-          brightness: !lambda return min ( max( id(led_ring).current_values.get_brightness() , 0.2f ) + 0.1f , 1.0f );
-          id: voice_assistant_leds
-          effect: "Muted or Silent"
+      - if:
+          condition:
+            lambda: 'return id(led_ring).current_values.get_state() && id(rainbow_selected);'
+          then:
+            - light.turn_off: voice_assistant_leds
+          else:
+            - light.turn_on:
+                brightness: !lambda return min ( max( id(led_ring).current_values.get_brightness() , 0.2f ) + 0.1f , 1.0f );
+                id: voice_assistant_leds
+                effect: "Muted or Silent"
 
   # Script executed when the voice assistant is not ready
   - id: control_leds_voice_assistant_not_ready_phase
