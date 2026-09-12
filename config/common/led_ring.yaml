@@ -129,11 +129,21 @@ light:
     # a persistent global — see rainbow_selected above for why this can't just be read live
     # from get_effect_name() later. Skipped while turning off, since ESPHome resets the
     # effect to None as part of that transition and we don't want that to erase our memory.
+    # Also re-runs control_leds so overlays correctly hand off between showing on led_ring
+    # (Rainbow) and voice_assistant_leds (e.g. the off-state mute fallback) whenever led_ring
+    # is toggled from OUTSIDE our own scripts (Home Assistant, a physical control, etc.) —
+    # without this, e.g. turning led_ring on while muted left the old off-state mute overlay
+    # on voice_assistant_leds still running at the same time as Rainbow now starting on
+    # led_ring, both racing over the same physical LEDs and causing a visible stutter. Calling
+    # control_leds again here is safe even when this fires as a side effect of control_leds'
+    # own actions (e.g. the on_turn_on restore above) — scripts default to mode: single, so a
+    # nested call while control_leds is already running is simply ignored, not queued/restarted.
     on_state:
       - lambda: |-
           if (id(led_ring).current_values.get_state()) {
             id(rainbow_selected) = (id(led_ring).get_effect_name() == "Rainbow");
           }
+      - script.execute: control_leds
     effects:
       - addressable_lambda:
           name: "Rainbow"
