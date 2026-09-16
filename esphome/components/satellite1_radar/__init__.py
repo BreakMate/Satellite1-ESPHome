@@ -3,7 +3,7 @@ from pathlib import Path
 
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.components import mdns, socket, uart
+from esphome.components import esp32, mdns, socket, uart
 from esphome.const import CONF_ESPHOME, CONF_ID, Framework
 from esphome.core.entity_helpers import (
     register_device_class,
@@ -72,6 +72,17 @@ def _final_validate(config):
 FINAL_VALIDATE_SCHEMA = _final_validate
 
 async def to_code(config):
+    # radar_tuner_server.cpp includes <cJSON.h>. ESPHome 2026.9.0 started excluding ~50
+    # built-in ESP-IDF components (including "json", the IDF 5.x home of cJSON) unless a
+    # component explicitly asks for them — this used to work by accident because something
+    # else in a typical build pulled "json" in anyway. On ESP-IDF 6.0+, the built-in "json"
+    # component was removed entirely; cJSON moves to the "espressif/cjson" registry package
+    # instead. See https://github.com/RAR/esphome-tigomonitor/pull/72 for an identical fix.
+    if esp32.idf_version().major >= 6:
+        esp32.add_idf_component(name="espressif/cjson", ref="^1.7.19")
+    else:
+        esp32.include_builtin_idf_component("json")
+
     device_class_indices = {
         "distance": register_device_class("distance"),
         "illuminance": register_device_class("illuminance"),
