@@ -148,7 +148,7 @@ light:
     effects:
       - addressable_lambda:
           name: "Rainbow"
-          update_interval: 16ms
+          update_interval: 33ms
           lambda: |-
             auto hsv_to_rgb = [](float h, float s, float v) -> Color {
               float r, g, b;
@@ -262,7 +262,13 @@ light:
 
               // Each corner gets a 3-LED cluster centered on the mic position (12 LEDs total),
               // solid red so it reads clearly as a mute state rather than blending into the
-              // rainbow underneath.
+              // rainbow underneath. Speaker-mute uses the other 12 LEDs (the 4 quadrants
+              // between mic clusters) — deliberately an "else if", not two independent "if"s:
+              // together they tile the entire ring with zero overlap, so if both were ever
+              // true at once (e.g. a media player reporting volume==0 simply because nothing
+              // is playing, at the same time mic-mute is on), the rainbow would be completely
+              // covered and invisible. Mic-mute takes priority in that case, guaranteeing at
+              // least 12 LEDs of rainbow stay visible no matter what combination is active.
               if (id(master_mute_switch).state) {
                 const int mic_centers[] = {0, 6, 12, 18};
                 for (int n = 0; n < 4; n++) {
@@ -271,8 +277,7 @@ light:
                   it[c] = Color(255, 0, 0);
                   it[(c + 1) % 24] = Color(255, 0, 0);
                 }
-              }
-              if (id(external_media_player).volume == 0.0f || id(external_media_player).is_muted()) {
+              } else if (id(external_media_player).volume == 0.0f || id(external_media_player).is_muted()) {
                 const int quadrant_starts[] = {1, 7, 13, 19};
                 for (int n = 0; n < 4; n++) {
                   int s = quadrant_starts[n];
