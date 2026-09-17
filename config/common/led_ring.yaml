@@ -87,7 +87,11 @@ light:
     id: hw_led_ring
     pin: GPIO21
     num_leds: 24
-    channel_colors: GRB
+    # rgb_order is deprecated on ESPHome >= 2026.9 in favor of channel_colors (removal slated
+    # for 2027.3), but channel_colors doesn't exist at all on older versions. Keep rgb_order
+    # here so the config builds on 2026.7/2026.8 — the deprecation warning on newer versions
+    # is harmless.
+    rgb_order: GRB
     chipset: WS2812
 
   # User facing LED ring. Remapping of the hardware LEDs.
@@ -116,13 +120,14 @@ light:
     # this, Rainbow would silently fall back to a static color every time the ring is toggled.
     # on_turn_on always fires before on_state for the same event (registration order is fixed
     # by codegen), and this call completes synchronously, so on_state below always sees the
-    # correctly-restored effect rather than the transient "None". Also re-runs control_leds
-    # afterward so e.g. the mute display correctly hands off from its off-state 4-LED fallback
-    # to Rainbow's own overlay the instant the ring actually turns on — without this, muting
-    # while off then turning the ring on would leave both trying to draw at once, causing a
-    # stutter. Unlike on_state (fires on every single light update), on_turn_on only fires once
-    # per genuine off->on transition (verified in ESPHome's own source), so this is a narrow,
-    # low-frequency trigger rather than something that runs constantly.
+    # correctly-restored effect rather than the transient "None".
+    #
+    # Deliberately does NOT call control_leds here (or from on_turn_off). The light's
+    # restore_mode can fire this trigger during the light's own setup(), before the media
+    # player, voice assistant, and the hardware strip's pixel buffer exist — control_leds reads
+    # from all of those and writes to the strip, so running it that early can dereference
+    # null pointers (a StoreProhibited crash at boot). The original firmware only ever ran
+    # control_leds from components that were already up; keep it that way.
     on_turn_on:
       - if:
           condition:
@@ -131,11 +136,6 @@ light:
             - light.turn_on:
                 id: led_ring
                 effect: "Rainbow"
-      - script.execute: control_leds
-    # Mirrors on_turn_on above: re-syncs overlay scripts (e.g. mute's fallback vs. Rainbow's own
-    # overlay) the instant the ring actually turns off. Also only fires once per transition.
-    on_turn_off:
-      - script.execute: control_leds
     # Whenever the light is genuinely on, remember whether Rainbow is the active effect into
     # a persistent global — see rainbow_selected above for why this can't just be read live
     # from get_effect_name() later. Skipped while turning off, since ESPHome resets the
